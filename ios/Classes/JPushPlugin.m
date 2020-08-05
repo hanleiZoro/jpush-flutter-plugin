@@ -5,6 +5,7 @@
 
 #import <JPush/JPUSHService.h>
 #import <AudioToolbox/AudioToolbox.h>
+#import <PushKit/PushKit.h>
 
 #define JPLog(fmt, ...) NSLog((@"| JPUSH | Flutter | iOS | " fmt), ##__VA_ARGS__)
 
@@ -22,7 +23,7 @@
 
 
 #if defined(__IPHONE_10_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_10_0
-@interface JPushPlugin ()<JPUSHRegisterDelegate>
+@interface JPushPlugin ()<JPUSHRegisterDelegate, PKPushRegistryDelegate>
 @end
 #endif
 
@@ -415,7 +416,11 @@ static NSMutableArray<FlutterResult>* getRidResults;
             NSTimeInterval currentInterval = [[NSDate date] timeIntervalSince1970];
             NSTimeInterval interval = [date doubleValue]/1000 - currentInterval;
             interval = interval>0?interval:0;
-            trigger.timeInterval = interval;
+            if (@available(iOS 10.0, *)) {
+                trigger.timeInterval = interval;
+            } else {
+                // Fallback on earlier versions
+            }
         }
     }
     
@@ -497,7 +502,16 @@ static NSMutableArray<FlutterResult>* getRidResults;
         }
         _launchNotification = localNotificationEvent;
     }
+    [self voipRegistration];
     return YES;
+}
+
+- (void)voipRegistration{
+  dispatch_queue_t mainQueue = dispatch_get_main_queue();
+  PKPushRegistry *voipRegistry = [[PKPushRegistry alloc] initWithQueue:mainQueue];
+  voipRegistry.delegate = self;
+  // Set the push type to VoIP
+  voipRegistry.desiredPushTypes = [NSSet setWithObject:PKPushTypeVoIP];
 }
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {
@@ -587,4 +601,19 @@ didRegisterUserNotificationSettings:(UIUserNotificationSettings *)notificationSe
     return formatDic;
 }
 
+/// VOIP: - voip 代理协议
+/// 系统返回VoipToken,上报给极光服务器
+- (void)pushRegistry:(nonnull PKPushRegistry *)registry didUpdatePushCredentials:(nonnull PKPushCredentials *)pushCredentials forType:(nonnull PKPushType)type {
+    [JPUSHService registerVoipToken:pushCredentials.token];
+}
+
+- (void)pushRegistry:(PKPushRegistry *)registry didReceiveIncomingPushWithPayload:(PKPushPayload *)payload forType:(PKPushType)type{
+  // 提交回执给极光服务器
+  [JPUSHService handleVoipNotification:payload.dictionaryPayload];
+}
+
+- (void)pushRegistry:(PKPushRegistry *)registry didReceiveIncomingPushWithPayload:(PKPushPayload *)payload forType:(PKPushType)type withCompletionHandler:(void(^)(void))completion{
+  // 提交回执给极光服务器
+  [JPUSHService handleVoipNotification:payload.dictionaryPayload];
+}
 @end
